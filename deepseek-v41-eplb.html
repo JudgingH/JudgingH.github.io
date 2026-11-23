@@ -31,6 +31,59 @@
 #step-accounting p{margin-top:10px}
 .page-layout{display:grid;grid-template-columns:204px minmax(0,1fr);gap:28px;align-items:start;width:min(1420px,calc(100% - 40px));margin:auto}.page-layout>main{grid-column:2;grid-row:1;width:100%;min-width:0;margin:0}.chapter-sidebar{grid-column:1;grid-row:1;position:sticky;top:24px;margin-top:24px;min-width:0}.chapter-directory{padding:14px 12px;background:var(--paper);border:1px solid var(--line);border-radius:9px}.chapter-directory>summary{font-weight:700;color:var(--ink);padding:0 4px}.chapter-directory nav{display:flex;flex-direction:column;gap:4px;width:auto;margin:12px 0 0;border:0}.chapter-directory nav a{display:block;padding:9px 10px;border:0;border-left:3px solid transparent;border-radius:0 5px 5px 0;font-size:14px}.chapter-directory nav a:hover{background:var(--bg)}.chapter-directory nav a[aria-current]{border-left-color:var(--teal);background:var(--mint);color:var(--teal)}body>header,body>footer{width:min(1420px,calc(100% - 40px))}body>header{padding-left:232px}
 @media(max-width:1040px){.page-layout{display:block;width:calc(100% - 24px)}body>header,body>footer{width:calc(100% - 24px)}body>header{padding-left:0}.chapter-sidebar{position:static;margin:0 0 8px}.chapter-directory{padding:10px 12px}.chapter-directory nav{margin-top:8px}.page-layout>main{width:100%}}
+
+.algorithm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.algorithm-result {
+  position: relative;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--teal);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.algorithm-result:nth-child(2) { border-top-color: var(--blue); }
+.algorithm-result:nth-child(3) { border-top-color: var(--amber); }
+.algorithm-result .tag { display: inline-block; margin-top: 5px; }
+.algorithm-rank { padding-block: 9px; border-bottom: 1px solid var(--line); }
+.algorithm-rank:last-child { border-bottom: 0; }
+.algorithm-rank p { display: flex; flex-wrap: wrap; gap: 4px 7px; align-items: baseline; }
+.algorithm-rank-load { margin-inline-start: auto; }
+.algorithm-slot {
+  display: inline-block;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.algorithm-slot.incoming { background: var(--sand); border-color: var(--amber); }
+.algorithm-slot.receiving { border: 1px dashed var(--amber); }
+.algorithm-flight {
+  position: absolute;
+  z-index: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--amber);
+  color: var(--paper);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.algorithm-transfers { margin: 7px 0; padding-inline-start: 20px; font-size: 14px; }
+.algorithm-original { display: flex; flex-wrap: wrap; gap: 7px 16px; margin-block: 10px; }
+.algorithm-meter { height: 5px; margin-top: 6px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.algorithm-meter span { display: block; height: 100%; background: var(--teal); transition: width .25s ease; }
+.algorithm-metrics { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--line); }
+#algorithm-detail { margin-top: 10px; }
+#algorithm-step { margin-top: 9px; }
+#algorithm-loads td { text-align: right; }
+#algorithm-loads tr[data-current] > * { background: var(--mint); }
+@media(max-width:1150px) { .algorithm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media(max-width:690px) { .algorithm-grid { grid-template-columns: 1fr; } }
+@media(prefers-reduced-motion:reduce) { .algorithm-meter span { transition: none; } }
 </style>
 </head>
 <body>
@@ -44,7 +97,7 @@
 <details class="chapter-directory" id="chapter-directory" open>
 <summary>目录</summary>
 <nav aria-label="章节">
-  <a href="#placement" aria-current="page">专家与映射</a><a href="#async">异步提交</a><a href="#stair">STAIR 与 default</a><a href="#force">强制路由</a><a href="#deploy">MRV2 配置与源码</a>
+  <a href="#placement" aria-current="page">专家与映射</a><a href="#async">异步提交</a><a href="#stair">STAIR 与 default</a><a href="#force">强制路由</a><a href="#algorithms">三仓 EPLB 算法对比</a><a href="#deploy">MRV2 配置与源码</a>
 </nav>
 </details>
 </aside>
@@ -211,6 +264,81 @@
     <p class="callout warn"><strong>强制路由下模型输出和精度指标失效。</strong> 该路径要求 MoE + EP，逻辑专家数能被 EP size 整除。配置校验禁止与旧版 <code>dynamic_eplb</code> 混用。合成 ID 在映射相关逻辑之后覆盖，余数、padding 和实际放置都会影响观察到的负载。</p>
   </div>
 </section>
+<section id="algorithms" hidden>
+  <div class="heading">
+    <div><h2>三套 EPLB 算法如何交换专家</h2><p class="muted">用同一组逐步负载和初始物理布局，对照三个规划器算出的目标布局。</p></div>
+  </div>
+  <div class="panel scroll" role="region" aria-label="EPLB 实现对比" tabindex="0">
+    <table class="compare">
+      <thead><tr><th scope="col">计算环节</th><th scope="col">vLLM default</th><th scope="col">vLLM‑Ascend STAIR</th><th scope="col">DeepInfer</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">负载输入</th><td>把物理槽的命中数归并到逻辑专家后，使用每个专家在整个窗口的累计负载。</td><td>按时间把相邻样本压成带权桶，从每个桶的专家均值及样本数估算均值、方差和专家间协方差。</td><td>物理命中数按步归并到逻辑专家，经 EP all-reduce 得到 <code>[step, layer, expert]</code> 负载。</td></tr>
+        <tr><th scope="row">冗余副本</th><td>每加一个副本，选 <code>窗口累计负载 ÷ 当前副本数</code> 最大的专家。</td><td>用 <code>(均值 + z × 标准差) ÷ 副本数</code> 排序和估价，搜索多种副本预算分配，包括从当前副本数出发的增量方案。</td><td>逐一尝试把下一副本给各逻辑专家，选择让 <code>Σ步 max专家(该步负载 ÷ 副本数)</code> 最小的专家。</td></tr>
+        <tr><th scope="row">放置目标</th><td>按每副本累计负载降序投入当前最轻且未满的 rank。拓扑允许时，先把专家组打包到节点，再在节点内复制和放置。</td><td>按单副本风险降序。优先选择放入后风险最低的可行 rank，风险包含与已有专家的协方差。每个 rank 至多放同一专家的一个副本，并检查迁移预算。</td><td>按每副本累计负载降序。每试放一个 rank，就计算 <code>Σ步 max rank(该步负载)</code>，在未满的 rank 中选和最小者。</td></tr>
+        <tr><th scope="row">提交与搬运</th><td>策略在配置周期计算布局。传入旧映射时，策略可保留同 rank 的原槽，权重搬运由上游 EPLB 执行。</td><td>有有效基线时先看相对或绝对门槛。候选的预测平均峰均比和 p95 均需不劣于当前布局。Ascend MRV2 逐层异步搬运并提交。</td><td>到重排周期后，在同一路径中执行规划、原位 shuffle，再更新物理到逻辑映射、逻辑到物理映射和副本数。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <div class="heading"><div><h3>同一批热点，三种目标布局</h3><p id="algorithm-fixture"></p></div></div>
+    <div id="algorithm-scenarios" class="toolbar" role="group" aria-label="对比算例">
+      <button type="button" data-algorithm-scenario="0" aria-pressed="true">仅交换专家</button>
+      <button type="button" data-algorithm-scenario="1" aria-pressed="false">分配一个冗余槽</button>
+    </div>
+    <h3>初始布局</h3>
+    <div id="algorithm-original" class="algorithm-original"></div>
+    <details><summary>查看逐步专家命中数</summary>
+      <div class="scroll" role="region" aria-label="共同输入负载" tabindex="0"><table id="algorithm-loads"></table></div>
+    </details>
+    <div class="toolbar"><button id="algorithm-play" type="button" class="primary">播放重排过程</button></div>
+    <div id="algorithm-step" class="toolbar" role="group" aria-label="重排演示阶段"></div>
+    <p id="algorithm-detail" class="callout" aria-live="polite"></p>
+    <div class="legend"><span class="sand">已接收的专家权重</span><span>虚线框是待接收槽位</span></div>
+    <div id="algorithm-results" class="algorithm-grid"></div>
+    <p class="callout"><strong>迁入</strong>是目标 rank 从另一 rank 接收一份专家权重。例如，STAIR 把 E0 从 rank 1 发到 rank 0，同时反向发送 E1，这次交换共计两次迁入。若只复制 E2 到 rank 0，rank 1 保留 E2，计一次迁入。<strong>变更槽</strong>统计槽位上专家 ID 的变化，同一 rank 内换槽也计入。</p>
+    <p class="muted">动画按目标布局展示跨 rank 权重传输。实际时序取决于各运行时。负载按逻辑专家命中数在副本间均分估算。峰值和是各历史步最忙 rank 的负载之和，mean 和 p95 分别是逐步峰均比的平均值和第 95 百分位。</p>
+  </div>
+  <div class="panel">
+    <h3>专家怎样排序，又怎样选 rank？</h3>
+    <p>「仅交换专家」算例没有额外副本，每个专家只有一份权重。表中的顺序用于构造目标布局。算出完整布局后，再与初始槽位比较，决定需要搬运哪些权重。</p>
+    <div class="scroll" role="region" aria-label="三种算法的专家放置顺序" tabindex="0">
+      <table class="compare">
+        <thead><tr><th scope="col">算法</th><th scope="col">先放谁</th><th scope="col">放到哪个 rank</th><th scope="col">本例的结果</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">vLLM default</th><td>按每副本累计负载降序。<br><code>E2 300 → E0 240 → E3 210 → E1 190</code></td><td>选择当前累计负载最小、还有空槽的 rank。本例 E2 先放 rank 0，E0 进空的 rank 1。试放 E3 时，rank 1 的 240 比 rank 0 的 300 小，所以 E3 进 rank 1。</td><td>rank 0 放 E2、E1。rank 1 放 E0、E3。结果和初始布局相同。</td></tr>
+          <tr><th scope="row">DeepInfer</th><td>同样按每副本累计负载降序。<br><code>E2 → E0 → E3 → E1</code></td><td>逐个尝试未满的 rank，选放入后逐步峰值和最小的位置。同分时选 rank ID 较小者。E0 放在 rank 0 的得分是 <code>540</code>，放在 rank 1 的得分是 <code>360</code>，所以先与 E2 分开。</td><td>E3 进 rank 0，E1 补到 rank 1，相对初始布局交换 E1 和 E3。E3 的试放过程见下表。</td></tr>
+          <tr><th scope="row">vLLM‑Ascend STAIR</th><td>按每副本风险降序。本例风险为 <code>均值 + 0.6745 × 样本标准差</code>。<br><code>E2 126.98 → E3 117.21 → E0 115.69 → E1 101.69</code></td><td>在满足槽位、副本分布和迁移约束的 rank 中，优先试放入后风险最低者。E3 波动较大，排到 E0 前面并先占 rank 1。随后把 E0 加到 rank 0 的风险是 <code>193.49</code>，加到 rank 1 是 <code>227.79</code>。</td><td>rank 0 放 E2、E0。E1 补到 rank 1，相对初始布局交换 E0 和 E1。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">有额外副本时，排序分数按副本数分摊。上表使用单节点算例，default 在满足拓扑条件的部署中还可以先做分组装箱。</p>
+  </div>
+  <div class="panel">
+    <h3>DeepInfer 怎样算逐步峰值和？</h3>
+    <p>同一个无冗余算例中，试放 E3 时，rank 0 已有 E2 <code>[100, 60, 140]</code>，rank 1 已有 E0 <code>[100, 120, 20]</code>。E3 的三步负载是 <code>[140, 70, 0]</code>，E1 尚未放置。</p>
+    <p class="formula"><code>候选得分 = Σ 每个采样步的最忙 rank 负载</code><br>先把试放专家的负载加到目标 rank，再逐步取各 rank 中最大的负载，最后把这些最大值相加。</p>
+    <div class="scroll" role="region" aria-label="DeepInfer 试放 E3 的逐步峰值" tabindex="0">
+      <table class="compare">
+        <thead><tr><th scope="col">E3 试放到</th><th scope="col">rank 0 三步负载</th><th scope="col">rank 1 三步负载</th><th scope="col">逐步取最大值</th><th scope="col">峰值和</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">rank 0</th><td>E2 + E3<br><code>[240, 130, 140]</code></td><td>E0<br><code>[100, 120, 20]</code></td><td><code>[240, 130, 140]</code></td><td><code>240 + 130 + 140</code><br><strong>510</strong></td></tr>
+          <tr><th scope="row">rank 1</th><td>E2<br><code>[100, 60, 140]</code></td><td>E0 + E3<br><code>[240, 190, 20]</code></td><td><code>[240, 190, 140]</code></td><td><code>240 + 190 + 140</code><br><strong>570</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="callout">试放到 rank 1 时，第 2 步的峰值来自 rank 1（190），第 3 步的峰值来自 rank 0（140）。因为 <code>510 &lt; 570</code>，DeepInfer 把 E3 放到 rank 0。E1 补进 rank 1 后，第 2 步峰值升到 200，完整布局的峰值和为 <code>240 + 200 + 140 = 580</code>。</p>
+  </div>
+  <div class="panel">
+    <h3>源码和算例口径</h3>
+    <p>两个算例各用一层 MoE、3 个等权历史步。每个算例都给三个策略同一份输入。default 按单节点全局装箱，启用同 rank 槽位保留。STAIR 每步一桶，使用默认风险分位 <code>0.75</code>，迁移上限设为 <code>-1</code>，并按首次非零窗口进入规划。</p>
+    <p class="muted">default 和 STAIR 的布局用本地策略函数离线核对。DeepInfer 按本地源码的逐步评分和同分规则复算。</p>
+    <ul class="sources">
+      <li>vLLM <code>ad227db3ce</code> · <a href="https://github.com/vllm-project/vllm/blob/ad227db3ceb2880e7775e3683ff9805c2dfa662b/vllm/distributed/eplb/policy/default.py">DefaultEplbPolicy</a></li>
+      <li>vLLM‑Ascend <code>a9d800d653</code> · <a href="https://github.com/vllm-project/vllm-ascend/blob/a9d800d653978db21b50675f83cd5c648eb5feba/vllm_ascend/distributed/eplb/policy/stair.py">StairEplbPolicy</a></li>
+      <li>DeepInfer <code>a679bb86ce</code> · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/eplb/policy.py">rebalance_experts_global</a> · <a href="https://github.com/deepseek-ai/DeepInfer/blob/a679bb86ce36e883a98a97733492b686e5b9a08e/deepinfer/model_executor/eplb/__init__.py">重排执行入口</a></li>
+    </ul>
+  </div>
+</section>
 <section id="deploy" hidden>
   <div class="heading"><div><h2>DeepSeek‑V4.1‑Flash 的 MRV2 配置</h2><p class="muted">本地部署笔记使用 Ascend 752T、W4A8、1P1D。下面是加到现有启动脚本的 EPLB 参数片段。</p></div><span class="tag">基于本地源码 · 未实机运行</span></div>
   <div class="row">
@@ -263,6 +391,7 @@ function showSection() {
   if (active.id !== 'placement') stopPlacementPlayback();
   if (active.id !== 'async') stopPlayback();
   if (active.id !== 'force') stopForcePlayback();
+  if (active.id !== 'algorithms') stopAlgorithmPlayback();
 }
 
 const logicalLoad = [120, 72, 44, 36, 24, 20, 16, 12];
@@ -714,6 +843,242 @@ el('config-redundant').addEventListener('click', event => {
   renderConfig();
 });
 
+
+const algorithmFixtures = [{
+  samples: [[100, 0, 100, 140], [120, 80, 60, 70], [20, 110, 140, 0]],
+  original: [[2, 1], [0, 3]],
+  plans: [
+    {
+      name: 'vLLM default',
+      ranks: [[2, 1], [0, 3]],
+      exchange: '维持初始布局',
+      reason: 'E2、E0 先入不同 rank，E3 加到当时累计负载较低的 rank 1。最后一个槽留给 E1。'
+    },
+    {
+      name: 'vLLM‑Ascend STAIR',
+      ranks: [[2, 0], [1, 3]],
+      exchange: '交换 E0 和 E1',
+      reason: '风险顺序为 E2、E3、E0、E1。试放 E0 时，与 E2 同放的 rank 风险约为 193.49，与 E3 同放约为 227.79，因此 E0 进 rank 0，E1 随后补入另一侧。'
+    },
+    {
+      name: 'DeepInfer',
+      ranks: [[2, 3], [0, 1]],
+      exchange: '交换 E1 和 E3',
+      reason: 'E2 和 E0 先分到两个 rank。试放 E3 时，放到 rank 0 的逐步峰值和是 510，放到 rank 1 是 570，因此 E3 进 rank 0。'
+    }
+  ]
+}, {
+  samples: [[50, 40, 10], [60, 130, 90], [100, 20, 100]],
+  original: [[0, 1], [2, 0]],
+  plans: [
+    {
+      name: 'vLLM default',
+      ranks: [[0, 2], [1, 0]],
+      exchange: '保留 E0 副本，交换 E1 和 E2',
+      reason: '窗口累计命中数为 E0=210、E1=190、E2=200，额外副本仍给 E0。每 rank 保留原 E0 槽，E1 和 E2 交换。'
+    },
+    {
+      name: 'vLLM‑Ascend STAIR',
+      ranks: [[2, 1], [2, 0]],
+      exchange: '复制 E2 到 rank 0',
+      reason: 'E2 的副本替换 rank 0 的一个 E0。该布局降低 mean，且保持初始 p95。DeepInfer 的 E1 副本布局的 p95 为 1.400，高于初始的 1.364，因此无法通过 STAIR 的候选验收。'
+    },
+    {
+      name: 'DeepInfer',
+      ranks: [[0, 1], [2, 1]],
+      exchange: '复制 E1 到 rank 1',
+      reason: '给 E0、E1、E2 各试加一个副本，逐步最大单副本负载之和约为 270、240、280。E1 得分最小，新增副本替换 rank 1 的一个 E0。'
+    }
+  ]
+}];
+let algorithmScenario = 0;
+let algorithmFrame = 0;
+let algorithmTimer = null;
+function algorithmTransfers(original, ranks) {
+  return ranks.flatMap((experts, targetRank) => {
+    const remaining = [...original[targetRank]];
+    return experts.flatMap((expert, targetSlot) => {
+      const local = remaining.indexOf(expert);
+      if (local >= 0) {
+        remaining.splice(local, 1);
+        return [];
+      }
+      // In both fixtures each incoming expert has one initial source rank.
+      const sourceRank = original.findIndex((old, rank) => rank !== targetRank && old.includes(expert));
+      const sourceSlot = original[sourceRank].indexOf(expert);
+      return [{expert, sourceRank, sourceSlot, targetRank, targetSlot, copied: ranks[sourceRank].includes(expert)}];
+    });
+  });
+}
+const algorithmMoves = algorithmFixtures.map(({original, plans}) =>
+  plans.map(({ranks}) => algorithmTransfers(original, ranks))
+);
+function algorithmRankLoads(sample, ranks) {
+  const copies = Array(sample.length).fill(0);
+  ranks.flat().forEach(expert => { copies[expert] += 1; });
+  return ranks.map(slots => slots.reduce((sum, expert) => sum + sample[expert] / copies[expert], 0));
+}
+const algorithmMaxLoad = Math.max(...algorithmFixtures.flatMap(({samples, original, plans}) =>
+  [original, ...plans.map(plan => plan.ranks)].flatMap(ranks => samples.flatMap(sample => algorithmRankLoads(sample, ranks)))
+));
+const algorithmValue = n => Number(n.toFixed(2)).toString();
+function animateAlgorithmTransfer(index, move, direction) {
+  if (el('algorithms').hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const card = el(`algorithm-plan-${index}`);
+  const from = el(`algorithm-slot-${index}-${move.sourceRank}-${move.sourceSlot}`).getBoundingClientRect();
+  const to = el(`algorithm-slot-${index}-${move.targetRank}-${move.targetSlot}`).getBoundingClientRect();
+  const bounds = card.getBoundingClientRect();
+  const x = from.left + from.width / 2;
+  const y = from.top + from.height / 2;
+  const dx = to.left + to.width / 2 - x;
+  const dy = to.top + to.height / 2 - y;
+  const chip = document.createElement('span');
+  chip.className = 'algorithm-flight mono';
+  chip.setAttribute('aria-hidden', 'true');
+  chip.textContent = `E${move.expert}`;
+  chip.style.left = `${x - bounds.left}px`;
+  chip.style.top = `${y - bounds.top}px`;
+  card.append(chip);
+  const flight = chip.animate([
+    {transform: 'translate(-50%, -50%)', opacity: 0},
+    {transform: `translate(-50%, -50%) translate(${dx / 2 + direction * 18}px, ${dy / 2}px)`, opacity: 1},
+    {transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px)`, opacity: 1}
+  ], {duration: 800, easing: 'ease-in-out', fill: 'forwards'});
+  flight.onfinish = () => chip.remove();
+}
+function renderAlgorithmFrame() {
+  const {samples, original, plans} = algorithmFixtures[algorithmScenario];
+  const sampling = algorithmFrame < samples.length;
+  const committed = algorithmFrame > samples.length;
+  const sampleIndex = Math.min(algorithmFrame, samples.length - 1);
+  el('algorithm-step').querySelectorAll('button').forEach((button, index) => {
+    button.setAttribute('aria-pressed', String(algorithmFrame === index));
+  });
+  el('algorithm-loads').querySelectorAll('tbody tr').forEach((row, index) => {
+    row.toggleAttribute('data-current', sampleIndex === index);
+  });
+  const sample = samples[sampleIndex];
+  const baseline = algorithmRankLoads(sample, original);
+  el('algorithm-results').querySelectorAll('.algorithm-flight').forEach(chip => chip.remove());
+  const peaks = plans.map((plan, index) => {
+    const ranks = committed ? plan.ranks : original;
+    const moves = algorithmMoves[algorithmScenario][index];
+    const loads = algorithmRankLoads(sample, ranks);
+    ranks.forEach((experts, rank) => {
+      el(`algorithm-value-${index}-${rank}`).textContent = algorithmValue(loads[rank]) + ' 次';
+      el(`algorithm-meter-${index}-${rank}`).style.width = 100 * loads[rank] / algorithmMaxLoad + '%';
+      experts.forEach((expert, slot) => {
+        const cell = el(`algorithm-slot-${index}-${rank}-${slot}`);
+        const incoming = moves.some(move => move.targetRank === rank && move.targetSlot === slot);
+        cell.classList.toggle('receiving', !sampling && !committed && incoming);
+        cell.classList.toggle('incoming', committed && incoming);
+        cell.textContent = `槽 ${slot} · E${expert}${committed && incoming ? ' · 迁入' : ''}`;
+      });
+    });
+    el(`algorithm-label-${index}`).textContent = sampling ? '按原布局采样' : plan.exchange;
+    el(`algorithm-moves-${index}`).hidden = sampling;
+    el(`algorithm-metrics-${index}`).hidden = !committed;
+    el(`algorithm-reason-${index}`).hidden = sampling;
+    if (!sampling && !committed) {
+      moves.forEach(move => animateAlgorithmTransfer(index, move, move.sourceRank < move.targetRank ? -1 : 1));
+    }
+    return Math.max(...loads);
+  });
+  if (sampling) {
+    const next = sampleIndex === samples.length - 1 ? ' 三步采样完成后，各策略根据同一组记录规划布局。' : '';
+    el('algorithm-detail').textContent = `采样步 ${sampleIndex + 1} · 三个策略都在原布局下采样，rank 负载为 ${baseline.map(algorithmValue).join(' / ')} 次。${next}`;
+  } else if (committed) {
+    el('algorithm-detail').textContent = `新布局生效 · 用采样步 ${sampleIndex + 1} 的记录回放估算，最忙 rank 的负载为 default ${algorithmValue(peaks[0])}、STAIR ${algorithmValue(peaks[1])}、DeepInfer ${algorithmValue(peaks[2])} 次。`;
+  } else {
+    el('algorithm-detail').textContent = '搬运权重 · 方块从源槽飞向接收槽。虚线框仍显示该槽的旧专家，搬运完成后再切换映射。';
+  }
+}
+function renderAlgorithmComparison() {
+  const {samples: algorithmSamples, original: algorithmOriginal, plans: algorithmPlans} = algorithmFixtures[algorithmScenario];
+  el('algorithm-scenarios').querySelectorAll('button').forEach((button, index) => {
+    button.setAttribute('aria-pressed', String(index === algorithmScenario));
+  });
+  const expertCount = algorithmSamples[0].length;
+  const rankCount = algorithmOriginal.length;
+  const slots = algorithmOriginal[0].length;
+  const originalSlots = algorithmOriginal.flat();
+  const redundant = rankCount * slots - expertCount;
+  const totals = algorithmSamples.reduce((acc, row) => acc.map((sum, i) => sum + row[i]), Array(expertCount).fill(0));
+  el('algorithm-fixture').textContent = `单节点 · EP ${rankCount} · ${expertCount} 个逻辑专家 · 每 rank ${slots} 槽 · ${redundant} 个冗余槽`;
+  el('algorithm-original').innerHTML = algorithmOriginal.map((experts, rank) =>
+    `<span class="tag">rank ${rank} · ${experts.map(expert => 'E' + expert).join(' / ')}</span>`
+  ).join('');
+  el('algorithm-loads').innerHTML = `<thead><tr><th scope="col">采样步</th>${totals.map((_, i) => `<th scope="col">E${i}</th>`).join('')}</tr></thead>
+    <tbody>${algorithmSamples.map((sample, index) => `<tr><th scope="row">${index + 1}</th>${sample.map(n => `<td>${n}</td>`).join('')}</tr>`).join('')}</tbody>
+    <tfoot><tr><th scope="row">累计</th>${totals.map(n => `<td>${n}</td>`).join('')}</tr></tfoot>`;
+  const stages = [...algorithmSamples.map((_, step) => `采样步 ${step + 1}`), '搬运权重', '新布局生效'];
+  el('algorithm-step').innerHTML = stages.map((label, frame) =>
+    `<button type="button" data-algorithm-step="${frame}" aria-pressed="false">${label}</button>`
+  ).join('');
+  el('algorithm-results').innerHTML = algorithmPlans.map((plan, index) => {
+    const moves = algorithmMoves[algorithmScenario][index];
+    const changed = plan.ranks.flat().filter((expert, slot) => expert !== originalSlots[slot]).length;
+    const layout = algorithmOriginal.map((experts, rank) => {
+      const cells = experts.map((_, slot) =>
+        `<span class="algorithm-slot mono" id="algorithm-slot-${index}-${rank}-${slot}"></span>`
+      ).join('');
+      return `<div class="algorithm-rank"><p><b>rank ${rank}</b>${cells}<span class="mono algorithm-rank-load" id="algorithm-value-${index}-${rank}"></span></p>
+        <div class="algorithm-meter" aria-hidden="true"><span id="algorithm-meter-${index}-${rank}"></span></div></div>`;
+    }).join('');
+    const stepLoads = algorithmSamples.map(sample => algorithmRankLoads(sample, plan.ranks));
+    const peaks = stepLoads.map(loads => Math.max(...loads));
+    const ratios = stepLoads.map((loads, step) => peaks[step] * rankCount / loads.reduce((sum, n) => sum + n, 0));
+    const peakSum = peaks.reduce((sum, n) => sum + n, 0);
+    const mean = ratios.reduce((sum, n) => sum + n, 0) / ratios.length;
+    const p95 = [...ratios].sort((a, b) => a - b)[Math.ceil(ratios.length * .95) - 1];
+    const directions = moves.map(({expert, sourceRank, sourceSlot, targetRank, targetSlot, copied}) =>
+      `<li>E${expert} · rank ${sourceRank} 槽 ${sourceSlot} → rank ${targetRank} 槽 ${targetSlot}${copied ? '（源 rank 保留副本）' : ''}</li>`
+    ).join('');
+    return `<article class="algorithm-result" id="algorithm-plan-${index}"><h3>${plan.name}</h3><strong id="algorithm-label-${index}" class="tag"></strong>${layout}
+      <div id="algorithm-moves-${index}" hidden>${directions ? `<ul class="algorithm-transfers">${directions}</ul>` : '<p class="muted">各槽保持原专家权重。</p>'}</div>
+      <p id="algorithm-metrics-${index}" class="algorithm-metrics" hidden>峰值和 <b>${algorithmValue(peakSum)}</b><br>mean / p95 <b>${mean.toFixed(3)} / ${p95.toFixed(3)}</b><br>迁入 ${moves.length} 份权重 · 变更 ${changed} 个槽</p>
+      <details id="algorithm-reason-${index}" hidden><summary>为何得到这个布局</summary><p>${plan.reason}</p></details></article>`;
+  }).join('');
+  renderAlgorithmFrame();
+}
+function stopAlgorithmPlayback() {
+  clearTimeout(algorithmTimer);
+  algorithmTimer = null;
+  el('algorithm-play').textContent = algorithmFrame > algorithmFixtures[algorithmScenario].samples.length ? '重播重排过程' : '播放重排过程';
+}
+function advanceAlgorithmPlayback() {
+  const lastFrame = algorithmFixtures[algorithmScenario].samples.length + 1;
+  if (algorithmFrame === lastFrame) { stopAlgorithmPlayback(); return; }
+  algorithmTimer = setTimeout(() => {
+    algorithmFrame += 1;
+    renderAlgorithmFrame();
+    advanceAlgorithmPlayback();
+  }, algorithmFrame < lastFrame - 1 ? 900 : 1400);
+}
+el('algorithm-play').addEventListener('click', () => {
+  if (algorithmTimer !== null) { stopAlgorithmPlayback(); return; }
+  if (algorithmFrame > algorithmFixtures[algorithmScenario].samples.length) algorithmFrame = 0;
+  renderAlgorithmFrame();
+  el('algorithm-play').textContent = '暂停播放';
+  advanceAlgorithmPlayback();
+});
+el('algorithm-step').addEventListener('click', event => {
+  const button = event.target.closest('button[data-algorithm-step]');
+  if (!button) return;
+  algorithmFrame = Number(button.dataset.algorithmStep);
+  stopAlgorithmPlayback();
+  renderAlgorithmFrame();
+});
+el('algorithm-scenarios').addEventListener('click', event => {
+  const button = event.target.closest('button[data-algorithm-scenario]');
+  if (!button) return;
+  algorithmScenario = Number(button.dataset.algorithmScenario);
+  algorithmFrame = 0;
+  stopAlgorithmPlayback();
+  renderAlgorithmComparison();
+});
+
+renderAlgorithmComparison();
 renderPlacementMath();
 renderPlacement();
 renderTimeline();
