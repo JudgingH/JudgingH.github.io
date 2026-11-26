@@ -223,6 +223,19 @@
     <p class="muted">两条刻度都使用 B。深色滑块是当前 B，虚线左侧是触发区，等于门槛也触发。相对门槛换算到这条刻度后是 <code>B₀ × relative_balance_threshold</code>。预设会恢复两个阈值的默认值（0.95 和 0.90）。</p>
     <p class="muted">算例使用非零负载和有效提交基线。没有有效基线时，非零窗口可直接进入规划。通过门槛后，候选仍需满足放置约束和 mean / p95 验收条件。</p>
   </article>
+  <article class="panel" id="expert-load-observability">
+    <h3>专家负载观测</h3>
+    <p>启用 EP 和 EPLB 后，在 <code>--eplb-config</code> 中设置 <code>log_balancedness</code> 和 <code>log_balancedness_interval</code>。前者默认 <code>false</code>，后者默认 <code>1</code> 且必须为正整数。已有 EPLB 配置时，把这两个字段合并到原 JSON。</p>
+    <pre><code>--enable-expert-parallel \
+--enable-eplb \
+--eplb-config '{"log_balancedness":true,"log_balancedness_interval":10}'</code></pre>
+    <p><strong>当前步实测</strong>　EP rank 0 按日志间隔输出 <code>EPLB step</code>。每个 MoE 层先按 rank 汇总物理专家的实际命中数，再分别取 rank 平均值与最大值。<code>avg_tokens</code> 是各层平均值之和，<code>max_tokens</code> 是各层最大值之和。</p>
+    <p><code>balancedness = avg_tokens ÷ max_tokens</code>。例如，两层的 rank 负载分别为 <code>[120, 80]</code> 和 <code>[80, 120]</code>，则 <code>(100 + 100) ÷ (120 + 120) ≈ 0.8333</code>。越接近 <code>1</code> 越均衡，<code>max_tokens</code> 为零时记 <code>0</code>。</p>
+    <pre><code>EPLB step: 10 for model deepseek-v4.1-flash: avg_tokens=200.00, max_tokens=240, balancedness=0.8333, steps until the next rearrangement: 2990</code></pre>
+    <p><strong>重排前后预测</strong>　<code>Ascend async EPLB cycle committed</code> 中的 <code>mean</code> 和 <code>p95</code> 用同一历史采样窗口评估旧布局和新布局。STAIR 每层按时间桶计算「最忙 rank 负载 ÷ rank 平均负载」的加权均值和 p95，再跨层取平均。箭头左边是旧布局，右边是新布局，越接近 <code>1</code> 越均衡。</p>
+    <pre><code>Ascend async EPLB cycle committed: model=deepseek-v4.1-flash mean=1.2000-&gt;1.1000 p95=1.4000-&gt;1.2000 changed_layers=2 rank_transfers=4 cross_node_transfers=0</code></pre>
+    <p class="muted">以上为示例日志。提交后的实际负载用后续 <code>EPLB step</code> 判断。打印实测日志会增加 EP 组计数汇总通信。</p>
+  </article>
   <div class="panel">
     <h3>展开参数查看作用</h3>
     <p class="muted">参数位于 <code>additional_config.eplb_config.stair_config</code>。</p>
